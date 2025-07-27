@@ -400,6 +400,29 @@
             display: block;
             animation: fadeIn 0.3s ease;
         }
+
+        .share-section {
+            margin-top: 16px;
+            display: flex;
+            gap: 8px;
+        }
+
+        .share-btn {
+            padding: 8px 12px;
+            background: var(--bg-light);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .share-btn:hover {
+            background: var(--bg);
+        }
     </style>
 </head>
 <body>
@@ -442,6 +465,17 @@
                         <p class="empty-text">Belum ada URL yang diperpendek. Mulai dengan memasukkan URL di atas!</p>
                     </div>
                 </div>
+                
+                <div class="share-section">
+                    <button class="share-btn" id="shareDataBtn">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+                        Simpan Data
+                    </button>
+                    <button class="share-btn" id="importDataBtn">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                        Impor Data
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -449,12 +483,13 @@
     <script>
         class URLShortener {
             constructor() {
-                this.urls = this.loadUrls();
+                this.urls = [];
                 this.baseURL = window.location.origin + window.location.pathname;
                 this.init();
             }
 
             init() {
+                this.loadDataFromURL();
                 this.bindEvents();
                 this.updateStats();
                 this.renderUrls();
@@ -466,6 +501,8 @@
                 document.getElementById('urlInput').addEventListener('keypress', (e) => {
                     if (e.key === 'Enter') this.shortenUrl();
                 });
+                document.getElementById('shareDataBtn').addEventListener('click', () => this.shareData());
+                document.getElementById('importDataBtn').addEventListener('click', () => this.importData());
                 window.addEventListener('hashchange', () => this.handleHashNavigation());
             }
 
@@ -538,7 +575,7 @@
                     };
 
                     this.urls.unshift(urlData);
-                    this.saveUrls();
+                    this.updateURLWithData();
                     this.updateStats();
                     this.renderUrls();
 
@@ -557,10 +594,15 @@
             handleHashNavigation() {
                 const hash = window.location.hash.slice(1);
                 if (hash) {
+                    // Check if hash contains data (starts with "data=")
+                    if (hash.startsWith('data=')) {
+                        return; // This is data hash, not a short URL
+                    }
+
                     const urlData = this.urls.find(u => u.shortCode === hash);
                     if (urlData) {
                         urlData.clicks++;
-                        this.saveUrls();
+                        this.updateURLWithData();
                         this.updateStats();
                         this.renderUrls();
                         
@@ -678,20 +720,82 @@
                 }, 3000);
             }
 
-            loadUrls() {
+            updateURLWithData() {
                 try {
-                    const saved = localStorage.getItem('shortener_urls');
-                    return saved ? JSON.parse(saved) : [];
+                    const dataStr = btoa(JSON.stringify(this.urls));
+                    const newURL = `${window.location.pathname}#data=${dataStr}`;
+                    window.history.replaceState(null, null, newURL);
                 } catch (e) {
-                    return [];
+                    console.error('Gagal memperbarui URL dengan data:', e);
                 }
             }
 
-            saveUrls() {
+            loadDataFromURL() {
                 try {
-                    localStorage.setItem('shortener_urls', JSON.stringify(this.urls));
+                    const hash = window.location.hash.slice(1);
+                    if (hash.startsWith('data=')) {
+                        const dataStr = hash.substring(5);
+                        this.urls = JSON.parse(atob(dataStr)) || [];
+                    } else {
+                        this.urls = [];
+                    }
                 } catch (e) {
-                    console.error('Failed to save URLs:', e);
+                    this.urls = [];
+                }
+            }
+
+            shareData() {
+                try {
+                    const dataStr = btoa(JSON.stringify(this.urls));
+                    const shareUrl = `${window.location.origin}${window.location.pathname}#data=${dataStr}`;
+                    
+                    this.copyToClipboard(shareUrl, document.getElementById('shareDataBtn'));
+                    this.showToast('Link data berhasil disalin! Bagikan ke perangkat lain.');
+                } catch (e) {
+                    this.showError('Gagal membuat link data');
+                }
+            }
+
+            importData() {
+                const dataStr = prompt('Masukkan data yang ingin diimpor:');
+                if (dataStr) {
+                    try {
+                        // Check if it's a full URL
+                        if (dataStr.includes('#')) {
+                            const hash = dataStr.split('#')[1];
+                            if (hash.startsWith('data=')) {
+                                const importedData = JSON.parse(atob(hash.substring(5)));
+                                if (Array.isArray(importedData)) {
+                                    // Merge with existing data, avoid duplicates
+                                    importedData.forEach(newUrl => {
+                                        if (!this.urls.some(existingUrl => existingUrl.id === newUrl.id)) {
+                                            this.urls.push(newUrl);
+                                        }
+                                    });
+                                    
+                                    this.updateURLWithData();
+                                    this.updateStats();
+                                    this.renderUrls();
+                                    this.showToast('Data berhasil diimpor!');
+                                    return;
+                                }
+                            }
+                        }
+                        
+                        // Try to parse directly
+                        const importedData = JSON.parse(atob(dataStr));
+                        if (Array.isArray(importedData)) {
+                            this.urls = importedData;
+                            this.updateURLWithData();
+                            this.updateStats();
+                            this.renderUrls();
+                            this.showToast('Data berhasil diimpor!');
+                        } else {
+                            this.showError('Format data tidak valid');
+                        }
+                    } catch (e) {
+                        this.showError('Gagal mengimpor data: format tidak valid');
+                    }
                 }
             }
         }
